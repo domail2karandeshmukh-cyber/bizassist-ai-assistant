@@ -1,0 +1,40 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BizAssist AI Assistant</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="logo">BA</div>
+      <div>
+        <h1>BizAssist AI Assistant</h1>
+        <p>AI quotation assistant for Small and Medium-sized Enterprises</p>
+      </div>
+    </header>
+
+    <section class="card">
+      <h2>Client Request</h2>
+      <p>Paste the client request below and generate a draft quotation.</p>
+
+      <textarea id="clientRequest" placeholder="Example: Hello, we need 15 laptops, Microsoft 365 setup, and one year of remote IT support. Please send us a quotation."></textarea>
+
+      <button onclick="generateQuotation()">Generate Quotation</button>
+    </section>
+
+    <section class="card output-card">
+      <h2>Generated Quotation</h2>
+      <div id="quotationOutput">
+        Your quotation will appear here.
+      </div>
+      <button class="secondary" onclick="copyQuotation()">Copy Quotation</button>
+    </section>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
