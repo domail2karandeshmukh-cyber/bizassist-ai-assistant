@@ -4087,13 +4087,13 @@ document.addEventListener("click", e => {
 function budgetPanel(C) {
   if (!C || !C.work || !C.work.length || typeof evm !== "function") return "";
   const E = evm(C), M = E.money, cur = E.cur || "€"; if (!(M.BAC > 0)) return "";
-  const f = v => (v < 0 ? "−" : "") + cur + Math.round(Math.abs(v)).toLocaleString("en-GB");
+  const f = v => (v < 0 ? "−" : "") + cur + Math.round(Math.abs(v)).toLocaleString((FX[cur] || FX["€"]).loc);
   const used = M.AC / M.BAC, done = M.EV / M.BAC, over = M.EAC > M.BAC * 1.005, under = M.EAC < M.BAC * 0.98;
   const st = over ? ["Forecast over budget", "warn"] : under ? ["Forecast under budget", "ok"] : ["On budget", "ok"];
   const cost = t => (+t.effort || 0) * ((+t.owner_pct || 0) * rateOf(t.owner) + (t.support ? (+t.support_pct || 0) * rateOf(t.support) : 0));
   const ph = []; C.work.forEach(t => { const k = t.phase || "Other"; let r = ph.find(x => x.k === k); if (!r) ph.push(r = { k, b: 0, d: 0 }); const b = cost(t); r.b += b; r.d += b * (+t.actual || 0); });
   const w = v => Math.max(0, Math.min(100, v * 100)).toFixed(1) + "%";
-  return `<section class="panel budget-panel" id="budget-panel"><div class="panel-h"><div><h2>Budget</h2><p class="small muted">Planned effort × hourly rates · tracked with earned value (actual hours where logged)</p></div>${pill(st[0], st[1])}</div>
+  return `<section class="panel budget-panel" id="budget-panel"><div class="panel-h"><div><h2>Budget</h2><p class="small muted">Planned effort × hourly rates · tracked with earned value (actual hours where logged)${cur !== "€" ? ` · rates converted from € at ${FX[cur].note}` : ""}</p></div><div class="row" style="gap:8px;align-items:center"><select id="bud-cur" aria-label="Currency">${Object.entries(FX).map(([k, x]) => `<option value="${k}"${k === cur ? " selected" : ""}>${x.label}</option>`).join("")}</select>${pill(st[0], st[1])}</div></div>
     <div class="kpis k5">
       <div class="kpi"><span class="eyebrow">Budget (BAC)</span><span class="v">${f(M.BAC)}</span><span class="s">total planned cost</span></div>
       <div class="kpi"><span class="eyebrow">Spent so far (AC)</span><span class="v">${f(M.AC)}</span><span class="s">${(used * 100).toFixed(1)}% of budget</span></div>
@@ -4106,6 +4106,12 @@ function budgetPanel(C) {
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Phase</th><th class="num">Budget</th><th class="num">Cost of work done</th><th>Used</th></tr></thead><tbody>${ph.map(r => `<tr><td>${esc(r.k)}</td><td class="num">${f(r.b)}</td><td class="num">${f(r.d)}</td><td style="min-width:140px"><div class="pbar"><i style="width:${w(r.b ? r.d / r.b : 0)}"></i></div></td></tr>`).join("")}</tbody></table></div></section>`;
 }
 { const _ov = VIEWS.project.overview; VIEWS.project.overview = function () { const h = _ov.apply(this, arguments); let b = ""; try { b = budgetPanel(arguments[0]); } catch (e) { console.warn(e); } return h + b; }; }
+
+/* v12.3: budget currency — € (base, the hourly rates are in euros), US dollar or Indian rupee, converted at approximate
+   October 2026 rates (EUR/USD ≈ 1.13, EUR/INR ≈ 106). Applies to the Budget panel and to Earned value. */
+const FX = { "€": { k: 1, label: "€ Euro", loc: "en-GB", note: "1 € ≈ 1" }, "$": { k: 1.13, label: "$ US dollar", loc: "en-US", note: "1 € ≈ $1.13 (approx., Oct 2026)" }, "₹": { k: 106, label: "₹ Indian rupee", loc: "en-IN", note: "1 € ≈ ₹106 (approx., Oct 2026)" } };
+{ const _rateOf = rateOf; rateOf = function () { return _rateOf.apply(this, arguments) * ((FX[DB.settings.currency] || FX["€"]).k); }; }
+document.addEventListener("change", e => { if (!e.target || e.target.id !== "bud-cur") return; if (!FX[e.target.value]) return; DB.settings.currency = e.target.value; commit(`Budget shown in ${FX[e.target.value].label.slice(2)}.`); });
 
 /* ---- gantt.js ---- */
 /* ReleasePilot AI — 3. Gantt chart (selected project only). SVG bars, baseline, progress, milestones, critical path, FS/SS/FF links.
