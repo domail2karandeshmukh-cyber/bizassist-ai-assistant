@@ -4101,6 +4101,7 @@ function budgetPanel(C) {
       <div class="kpi ${M.VAC < 0 ? "warn" : "ok"}"><span class="eyebrow">Variance at completion</span><span class="v">${Math.abs(M.VAC) < 0.5 ? f(0) : (M.VAC > 0 ? "+" : "") + f(M.VAC)}</span><span class="s">${Math.abs(M.VAC) < 0.5 ? "on budget" : M.VAC < 0 ? "expected overspend" : "expected saving"}</span></div>
       <div class="kpi ${M.CPI < 1 ? "warn" : "ok"}"><span class="eyebrow">Cost performance (CPI)</span><span class="v">${M.CPI.toFixed(2)}</span><span class="s">${M.CPI < 1 ? "below 1 = over budget" : "1 or more = on / under budget"}</span></div>
     </div>
+    ${C.project.budget && C.project.budget.amount > 0 ? (() => { const B = C.project.budget, inEur = B.amount / ((FX[B.cur] || FX["€"]).k), appr = inEur * ((FX[cur] || FX["€"]).k), diff = appr - M.EAC; return `<div class="alert ${diff >= 0 ? "ok" : "warn"}" style="margin:0 0 10px"><div><b>Approved budget ${f(appr)}</b>${B.cur !== cur ? ` <span class="small muted">(${B.cur}${B.amount.toLocaleString(B.cur === "₹" ? "en-IN" : "en-GB")} entered)</span>` : ""} · forecast ${f(M.EAC)} → ${diff >= 0 ? `<b>${f(diff)} headroom</b>` : `<b>${f(-diff)} over the approved budget</b>`}</div></div>`; })() : ""}
     <div class="bbar" role="img" aria-label="Spent ${(used * 100).toFixed(0)}% of the budget, work done ${(done * 100).toFixed(0)}%"><i style="width:${w(used)}"></i><b style="left:${w(done)}"></b></div>
     <div class="row small muted" style="gap:16px;margin:6px 0 12px;flex-wrap:wrap"><span><i class="bdot sp"></i> Spent ${(used * 100).toFixed(1)}%</span><span><i class="bdot wd"></i> Work done ${(done * 100).toFixed(1)}%</span></div>
     <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Phase</th><th class="num">Budget</th><th class="num">Cost of work done</th><th>Used</th></tr></thead><tbody>${ph.map(r => `<tr><td>${esc(r.k)}</td><td class="num">${f(r.b)}</td><td class="num">${f(r.d)}</td><td style="min-width:140px"><div class="pbar"><i style="width:${w(r.b ? r.d / r.b : 0)}"></i></div></td></tr>`).join("")}</tbody></table></div></section>`;
@@ -6034,6 +6035,7 @@ function purposeName(t) {
 async function dialogRoute(text, parent, opts) {
   if (parent || (opts && (opts.file || opts.display || opts.overrides))) return _askCore(text, parent, opts);
   const raw = text.trim(), s = englishish(raw) ? raw : normCmd(raw), prop = lastProposal(), pend = DLG.pending;
+  if (!prop) { const rich = richRequest(raw); if (rich) return rich; }
   const start = projectStartOf(s);
   // a brand-new, fully specified request starts fresh
   const fullNew = start && (domainOf(s) || slotsFrom(s).months) && wantsCompleteProject(s) && !(prop && !start.name);
@@ -6148,7 +6150,7 @@ const _confirmCore = confirmTurn;
 confirmTurn = async function (id) {
   const t = findTurn(id); if (!t || t.state !== "proposed" || t._confirming) return; t._confirming = true;
   try { await _confirmCore(id); } finally { t._confirming = false; }
-  if (t.state === "executed" && t.goto && project(t.goto.pid)) { DLG.lastCreated = t.goto.pid; DLG.proposalId = null; DLG.pending = null; dlgSave(); render(); }
+  if (t.state === "executed" && t.goto && project(t.goto.pid)) { if (t.overrides && t.overrides.budget && !project(t.goto.pid).budget) { project(t.goto.pid).budget = t.overrides.budget; saveStore(); } DLG.lastCreated = t.goto.pid; DLG.proposalId = null; DLG.pending = null; dlgSave(); render(); }
 };
 const _recordCore = record;
 record = function (turn) { _recordCore(turn); if (turn.state === "proposed" && turn.plan && (turn.plan.actions || []).some(a => ACTIONS[a.type] && ACTIONS[a.type].complete)) { DLG.proposalId = turn.id; dlgSave(); }
@@ -6216,6 +6218,50 @@ function contextStrip() {
     const at = $("#ai-test"); if (at) at.addEventListener("click", aiHealthCheck);
   };
 })();
+
+/* v12.5: requests that state the details explicitly — "Project name: SmartAI · Budget: 50000 usd · Start date: 2nd Oct
+   2026 · End: Nov 2026", or the same in one sentence ("starting 1 December 2026 ending March 2027, budget $50,000").
+   Only used when a start date, end date, budget or "Project name:" is present; everything else is unchanged. */
+const RMON = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+function looseDate(str, endOfMonth) {
+  const t = String(str || "").toLowerCase().replace(/(\d)(st|nd|rd|th)\b/g, "$1").replace(/[,]/g, " "), ymd = (y, m, d) => (y > 1999 && y < 2100 && m >= 0 && m < 12 && d >= 1 && d <= 31) ? `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}` : null;
+  const mon = w => { const k = w.slice(0, 3); return RMON[k] != null ? RMON[k] : null; }; let m;
+  if ((m = /(\d{4})-(\d{1,2})-(\d{1,2})/.exec(t))) return ymd(+m[1], +m[2] - 1, +m[3]);
+  if ((m = /\b(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})\b/.exec(t))) return ymd(+m[3], +m[2] - 1, +m[1]);
+  if ((m = /\b(\d{1,2})\s+([a-z]{3,9})\.?\s+(\d{4})\b/.exec(t)) && mon(m[2]) != null) return ymd(+m[3], mon(m[2]), +m[1]);
+  if ((m = /\b([a-z]{3,9})\.?\s+(\d{1,2})\s+(\d{4})\b/.exec(t)) && mon(m[1]) != null) return ymd(+m[3], mon(m[1]), +m[2]);
+  if ((m = /\b([a-z]{3,9})\.?\s+(\d{4})\b/.exec(t)) && mon(m[1]) != null) { const y = +m[2], mo = mon(m[1]); return ymd(y, mo, endOfMonth ? new Date(Date.UTC(y, mo + 1, 0)).getUTCDate() : 1); }
+  return null;
+}
+function richRequest(raw) {
+  const t = raw.replace(/\r/g, ""), lo = t.toLowerCase(); let m;
+  const field = re => { const x = re.exec(t); return x ? x[1].trim() : null; };
+  const nameF = field(/(?:project\s*name|name)\s*[:=-]\s*([^\n,;]+)/i);
+  const startT = field(/(?:start(?:\s*date)?|starting(?:\s+on)?|from)\s*[:=-]?\s*((?:\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}\.?\s+\d{4})|(?:[A-Za-z]{3,9}\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})|(?:[A-Za-z]{3,9}\.?\s+\d{4})|(?:\d{4}-\d{1,2}-\d{1,2})|(?:\d{1,2}[\/.]\d{1,2}[\/.]\d{4}))/i);
+  const endT = field(/(?:end(?:\s*date)?|ending(?:\s+on)?|until|deadline|finish(?:\s*date)?)\s*[:=-]?\s*(?:in\s+|by\s+)?((?:\d{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]{3,9}\.?\s+\d{4})|(?:[A-Za-z]{3,9}\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})|(?:[A-Za-z]{3,9}\.?\s+\d{4})|(?:\d{4}-\d{1,2}-\d{1,2})|(?:\d{1,2}[\/.]\d{1,2}[\/.]\d{4}))/i);
+  const budM = /budget\s*(?:of|:|=|-|is)?\s*(?:(€|\$|₹|eur|euros?|usd|dollars?|inr|rs\.?|rupees?)\s*)?([\d][\d,.\s]*\d|\d)\s*(k|thousand|lakh|lakhs|crore)?\s*(€|\$|₹|eur|euros?|usd|dollars?|inr|rs\.?|rupees?)?/i.exec(t);
+  if (!nameF && !startT && !endT && !budM) return null;
+  const pend0 = DLG.pending && DLG.pending.intent === "create_complete_project" ? DLG.pending : null;
+  if (!(nameF || pend0 || /\b(create|build|make|start|plan|new|help|project)\b/i.test(lo))) return null;
+  const name = (nameF || (NAME_RX.exec(t) || [])[1] || (/(?:build|create|make)\s+([A-Z][\w&-]*(?:\s+[A-Z][\w&-]*){0,2})/.exec(t) || [])[1] || (pend0 && pend0.slots.name) || "").replace(/[.,!?]+$/, "").trim() || null;
+  const start = startT ? looseDate(startT, false) : null, end = endT ? looseDate(endT, true) : null;
+  const sl = slotsFrom(t.replace(/budget[^\n]*/ig, "").replace(/(start|end|until|deadline|finish)[^\n]*/ig, ""));
+  let months = sl.months || null;
+  if (end) { const s0 = start ? Date.parse(start) : Date.parse(RP.toS(RP.nextWD(RP.toN(DB.portfolioDate) + 3))), d = (Date.parse(end) - s0) / (30.44 * 864e5); if (d > 0.3) months = Math.max(1, Math.min(36, Math.round(d))); }
+  let budget = null;
+  if (budM) { let n = parseFloat(budM[2].replace(/[\s,]/g, "")); const mult = (budM[3] || "").toLowerCase(); if (mult === "k" || mult === "thousand") n *= 1e3; else if (/lakh/.test(mult)) n *= 1e5; else if (mult === "crore") n *= 1e7;
+    const c = ((budM[1] || budM[4] || "") + "").toLowerCase(), cur = /\$|usd|dollar/.test(c) ? "$" : /₹|inr|rs|rupee/.test(c) ? "₹" : "€"; if (n > 0 && isFinite(n)) budget = { amount: Math.round(n), cur }; }
+  const P = { intent: "create_complete_project", slots: Object.assign({}, pend0 ? pend0.slots : {}, Object.fromEntries(Object.entries(sl).filter(([, v]) => v != null && v !== "")), { name: name || sl.name, months: months || sl.months || (pend0 && pend0.slots.months) }), notes: pend0 ? (pend0.notes || []).slice() : [], at: Date.now(), delegated: true };
+  if (!P.slots.name) { const pn = purposeName(t.replace(/(project\s*name|budget|start|end)[^\n]*/ig, "")); if (pn && !/^(you|me|help)/i.test(pn)) { P.slots.name = pn; P.namedFrom = true; } }
+  if (!P.slots.name) return null;
+  if (start) P.slots.start = start;
+  uniqueSlots(P); const A = assumptionsFor(P).filter(a => !(a.k === "start" && start));
+  if (start) A.unshift({ k: "start2", t: `Start: ${fmt(start, { year: "numeric" })} — as you asked${Date.parse(start) < Date.parse(DB.portfolioDate) ? " (before today’s status date, so the plan shows it already running)" : ""}.` });
+  if (end) A.unshift({ k: "end", t: `End: ${fmt(end, { year: "numeric" })} — so the plan is ${P.slots.months} month${P.slots.months > 1 ? "s" : ""} long.` });
+  if (budget) A.unshift({ k: "budget", t: `Approved budget: ${budget.cur}${budget.amount.toLocaleString(budget.cur === "₹" ? "en-IN" : "en-GB")} — shown on the project’s Budget panel against the forecast cost.` });
+  DLG.pending = null; dlgSave();
+  return _askCore(synthRequest(P), null, { display: raw, overrides: { name: P.slots.name, months: P.slots.months, start: start || undefined, budget: budget || undefined }, assumptions: A });
+}
 
 /* ---- fx.js ---- */
 /* ============================================================================
